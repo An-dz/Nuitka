@@ -34,7 +34,7 @@ from nuitka.nodes.AttributeNodes import (
 )
 from nuitka.nodes.BuiltinIteratorNodes import ExpressionBuiltinIter1
 from nuitka.nodes.BuiltinNextNodes import ExpressionBuiltinNext1
-from nuitka.nodes.BuiltinRefNodes import makeExpressionBuiltinRef
+from nuitka.nodes.BuiltinRefNodes import makeExpressionBuiltinTypeRef
 from nuitka.nodes.BuiltinTypeNodes import ExpressionBuiltinTuple
 from nuitka.nodes.CallNodes import makeExpressionCall
 from nuitka.nodes.ClassNodes import (
@@ -171,7 +171,7 @@ def buildClassNode3(provider, node, source_ref):
         # The frame guard has nothing to tell its line number to.
         body.source_ref = source_ref
 
-    locals_scope = class_creation_function.getFunctionLocalsScope()
+    locals_scope = class_creation_function.getLocalsScope()
 
     statements = [
         StatementSetLocals(
@@ -441,13 +441,13 @@ def buildClassNode3(provider, node, source_ref):
                     variable=tmp_bases, source_ref=source_ref
                 ),
                 expression_yes=unspecified_metaclass_expression,
-                expression_no=makeExpressionBuiltinRef(
+                expression_no=makeExpressionBuiltinTypeRef(
                     builtin_name="type", source_ref=source_ref
                 ),
                 source_ref=source_ref,
             )
     else:
-        unspecified_metaclass_expression = makeExpressionBuiltinRef(
+        unspecified_metaclass_expression = makeExpressionBuiltinTypeRef(
             builtin_name="type", source_ref=source_ref
         )
 

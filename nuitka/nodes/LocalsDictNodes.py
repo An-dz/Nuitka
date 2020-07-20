@@ -140,7 +140,7 @@ class ExpressionLocalsVariableRefOrFallback(ExpressionChildHavingBase):
             and self.subnode_fallback.getVariable().isModuleVariable()
         ):
             # Just inform the collection that all escaped.
-            trace_collection.onLocalsUsage(self.getParentVariableProvider())
+            trace_collection.onLocalsUsage(self.getLocalsDictScope())
 
         if (
             self.subnode_fallback.isExpressionBuiltinRef()
@@ -360,6 +360,9 @@ class StatementLocalsDictOperationSet(StatementChildHavingBase):
 
     def getLocalsDictScope(self):
         return self.locals_scope
+
+    def getTypeShape(self):
+        return self.locals_scope.getMappingValueShape(self.variable)
 
     def computeStatement(self, trace_collection):
         if self.locals_scope.isMarkedForPropagation():

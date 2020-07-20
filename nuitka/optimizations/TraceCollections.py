@@ -500,25 +500,15 @@ class TraceCollectionBase(CollectionTracingMixin):
 
         return variable_trace
 
-    def onLocalsUsage(self, locals_owner):
-        self.onLocalsDictEscaped(locals_owner.getFunctionLocalsScope())
+    def onLocalsUsage(self, locals_scope):
+        self.onLocalsDictEscaped(locals_scope)
 
         result = []
 
-        include_closure = (
-            locals_owner.isExpressionFunctionBody() and not locals_owner.isUnoptimized()
-        )
+        scope_locals_variables = locals_scope.getLocalsRelevantVariables()
 
         for variable in self.getActiveVariables():
-            if (
-                variable.isLocalVariable()
-                and (
-                    variable.getOwner() is locals_owner
-                    or include_closure
-                    and locals_owner.hasClosureVariable(variable)
-                )
-                and variable.getName() != ".0"
-            ):
+            if variable.isLocalVariable() and variable in scope_locals_variables:
                 variable_trace = self.getVariableCurrentTrace(variable)
 
                 variable_trace.addNameUsage()
@@ -810,7 +800,7 @@ class TraceCollectionFunction(CollectionStartpointMixin, TraceCollectionBase):
             self.variable_actives[closure_variable] = 0
 
         # TODO: Have special function type for exec functions stuff.
-        locals_scope = function_body.getFunctionLocalsScope()
+        locals_scope = function_body.getLocalsScope()
 
         if locals_scope is not None:
             if not locals_scope.isMarkedForPropagation():

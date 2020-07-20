@@ -42,7 +42,7 @@ from nuitka.utils.ModuleNames import ModuleName
 from .Checkers import checkStatementsSequenceOrNone
 from .FutureSpecs import fromFlags
 from .IndicatorMixins import EntryPointMixin, MarkNeedsAnnotationsMixin
-from .LocalsScopes import getLocalsDictHandle, setLocalsDictType
+from .LocalsScopes import getLocalsDictHandle
 from .NodeBases import (
     ChildrenHavingMixin,
     ClosureGiverNodeMixin,
@@ -260,7 +260,10 @@ class CompiledPythonModule(
         self.source_code = None
 
         self.module_dict_name = "globals_%s" % (self.getCodeName(),)
-        setLocalsDictType(self.module_dict_name, "module_dict")
+
+        self.locals_scope = getLocalsDictHandle(
+            self.module_dict_name, "module_dict", self
+        )
 
     def getDetails(self):
         return {
@@ -378,7 +381,7 @@ class CompiledPythonModule(
     def hasVariableName(self, variable_name):
         return variable_name in self.variables or variable_name in self.temp_variables
 
-    def getVariables(self):
+    def getProvidedVariables(self):
         return self.variables.values()
 
     def getFilename(self):
@@ -551,7 +554,7 @@ class CompiledPythonModule(
         for outline in outlines:
             result.extend(outline.getUserLocalVariables())
 
-        return tuple(result)
+        return result
 
     def hasClosureVariable(self, variable):
         # Modules don't do this, pylint: disable=no-self-use,unused-argument
@@ -567,13 +570,8 @@ class CompiledPythonModule(
                 outline.removeUserVariable(variable)
                 break
 
-    @staticmethod
-    def getFunctionLocalsScope():
-        """ Modules have no locals scope. """
-        return None
-
-    def getModuleDictScope(self):
-        return getLocalsDictHandle(self.module_dict_name)
+    def getLocalsScope(self):
+        return self.locals_scope
 
 
 class CompiledPythonPackage(CompiledPythonModule):

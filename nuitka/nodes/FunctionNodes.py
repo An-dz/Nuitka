@@ -52,7 +52,7 @@ from .IndicatorMixins import (
     EntryPointMixin,
     MarkUnoptimizedFunctionIndicatorMixin,
 )
-from .LocalsScopes import getLocalsDictHandle, setLocalsDictType
+from .LocalsScopes import getLocalsDictHandle
 from .NodeBases import (
     ClosureGiverNodeMixin,
     ClosureTakerMixin,
@@ -155,55 +155,62 @@ class ExpressionFunctionBodyBase(
 
         return False
 
-    def hasVariableName(self, variable_name):
-        return variable_name in self.providing or variable_name in self.temp_variables
+    def getLocalsScope(self):
+        return self.locals_scope
 
-    def getVariables(self):
-        return self.providing.values()
+    # TODO: Dubious function doing to distinct things, should be moved to users.
+    def hasVariableName(self, variable_name):
+        return (
+            self.locals_scope.hasProvidedVariable(variable_name)
+            or variable_name in self.temp_variables
+        )
+
+    def getProvidedVariables(self):
+        if self.locals_scope is not None:
+            return self.locals_scope.getProvidedVariables()
+        else:
+            return ()
 
     def getLocalVariables(self):
         return [
             variable
-            for variable in self.providing.values()
+            for variable in self.getProvidedVariables()
             if variable.isLocalVariable()
         ]
 
     def getLocalVariableNames(self):
         return [
             variable.getName()
-            for variable in self.providing.values()
+            for variable in self.getProvidedVariables()
             if variable.isLocalVariable()
         ]
 
     def getUserLocalVariables(self):
-        return tuple(
+        return [
             variable
-            for variable in self.providing.values()
+            for variable in self.getProvidedVariables()
             if variable.isLocalVariable() and not variable.isParameterVariable()
             if variable.getOwner() is self
-        )
+        ]
 
     def getOutlineLocalVariables(self):
+        result = []
+
         outlines = self.getTraceCollection().getOutlineFunctions()
 
         if outlines is None:
-            return ()
-
-        result = []
+            return result
 
         for outline in outlines:
             result.extend(outline.getUserLocalVariables())
 
-        return tuple(result)
+        return result
 
     def removeClosureVariable(self, variable):
         # Do not remove parameter variables of ours.
         assert not variable.isParameterVariable() or variable.getOwner() is not self
 
-        variable_name = variable.getName()
-
-        if variable_name in self.providing:
-            del self.providing[variable.getName()]
+        self.locals_scope.unregisterClosureVariable(variable)
 
         self.taken.remove(variable)
 
@@ -222,7 +229,8 @@ class ExpressionFunctionBodyBase(
                 new_variable.addTrace(variable_trace)
         new_variable.updateUsageState()
 
-        self.providing[variable.getName()] = new_variable
+        self.locals_scope.unregisterClosureVariable(variable)
+        self.locals_scope.registerProvidedVariable(new_variable)
 
         updateVariableUsage(
             provider=self, old_variable=variable, new_variable=new_variable
@@ -232,11 +240,9 @@ class ExpressionFunctionBodyBase(
         return variable in self.taken
 
     def removeUserVariable(self, variable):
-        assert variable in self.providing.values(), (self, self.providing, variable)
-
-        del self.providing[variable.getName()]
-
         assert not variable.isParameterVariable() or variable.getOwner() is not self
+
+        self.locals_scope.unregisterProvidedVariable(variable)
 
     def getVariableForAssignment(self, variable_name):
         # print("ASS func", self, variable_name)
@@ -259,7 +265,7 @@ class ExpressionFunctionBodyBase(
             # Remember that we need that closure variable for something, so
             # we don't create it again all the time.
             if not result.isModuleVariable():
-                self.registerProvidedVariable(result)
+                self.locals_scope.registerClosureVariable(result)
 
             entry_point = self.getEntryPoint()
 
@@ -293,7 +299,11 @@ class ExpressionFunctionBodyBase(
     def createProvidedVariable(self, variable_name):
         # print("createProvidedVariable", self, variable_name)
 
-        return Variables.LocalVariable(owner=self, variable_name=variable_name)
+        assert self.locals_scope, self
+
+        return self.locals_scope.getLocalVariable(
+            variable_name=variable_name, owner=self
+        )
 
     def addNonlocalsDeclaration(self, names, user_provided, source_ref):
         """ Add a nonlocal declared name.
@@ -378,17 +388,14 @@ class ExpressionFunctionEntryPointBase(EntryPointMixin, ExpressionFunctionBodyBa
 
         provider.getParentModule().addFunction(self)
 
-        if python_version >= 300:
-            self.locals_dict_name = "locals_%s" % (self.getCodeName(),)
-
-            setLocalsDictType(self.locals_dict_name, "python3_function")
-        elif flags is not None and "has_exec" in flags:
-            self.locals_dict_name = "locals_%s" % (self.getCodeName(),)
-
-            setLocalsDictType(self.locals_dict_name, "python2_function_exec")
+        if flags is not None and "has_exec" in flags:
+            locals_kind = "python2_function_exec"
         else:
-            # TODO: There should be a locals scope for non-dict/mapping too.
-            self.locals_dict_name = None
+            locals_kind = "python_function"
+
+        self.locals_scope = getLocalsDictHandle(
+            "locals_%s" % self.getCodeName(), locals_kind, self
+        )
 
         # Automatic parameter variable releases.
         self.auto_release = auto_release or None
@@ -399,12 +406,6 @@ class ExpressionFunctionEntryPointBase(EntryPointMixin, ExpressionFunctionBodyBa
         result["auto_release"] = tuple(sorted(self.auto_release or ()))
 
         return result
-
-    def getFunctionLocalsScope(self):
-        if self.locals_dict_name is None:
-            return None
-        else:
-            return getLocalsDictHandle(self.locals_dict_name)
 
     def getCodeObject(self):
         return self.code_object
@@ -440,7 +441,7 @@ class ExpressionFunctionEntryPointBase(EntryPointMixin, ExpressionFunctionBodyBa
                 self.setBody(result)
 
     def removeVariableReleases(self, variable):
-        assert variable in self.providing.values(), (self, self.providing, variable)
+        assert variable in self.locals_scope.providing.values(), (self, variable)
 
         if self.auto_release is None:
             self.auto_release = set()
@@ -455,7 +456,7 @@ class ExpressionFunctionEntryPointBase(EntryPointMixin, ExpressionFunctionBodyBa
         """
         return tuple(
             variable
-            for variable in self.providing.values()
+            for variable in self.locals_scope.getProvidedVariables()
             if not self.auto_release or variable not in self.auto_release
             if variable.isParameterVariable()
             if variable.getOwner() is self
@@ -476,7 +477,7 @@ class ExpressionFunctionEntryPointBase(EntryPointMixin, ExpressionFunctionBodyBa
 
         return tuple(
             variable
-            for variable in self.providing.values()
+            for variable in self.locals_scope.getProvidedVariables()
             if variable in self.auto_release
         )
 
@@ -536,7 +537,7 @@ class ExpressionFunctionBody(
         self.parameters.setOwner(self)
 
         for variable in self.parameters.getAllVariables():
-            self.registerProvidedVariable(variable)
+            self.locals_scope.registerProvidedVariable(variable)
 
     def getDetails(self):
         return {
