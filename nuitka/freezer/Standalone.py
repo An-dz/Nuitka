@@ -47,7 +47,7 @@ from nuitka.nodes.ModuleNodes import (
     makeUncompiledPythonModule,
 )
 from nuitka.plugins.Plugins import Plugins
-from nuitka.PythonVersions import python_version
+from nuitka.PythonVersions import python_version, python_version_str
 from nuitka.Tracing import general, printError
 from nuitka.tree.SourceReading import readSourceCodeFromFilename
 from nuitka.utils import Utils
@@ -707,6 +707,20 @@ def _detectBinaryPathDLLsMacOS(original_dir, binary_filename, keep_unresolved):
         if not stop:
             if python_version >= 300:
                 filename = filename.decode("utf-8")
+
+            # Workaround for main binary, instead use the shared library if available.
+            if (
+                filename
+                == "/Library/Frameworks/Python.framework/Versions/%s/Python"
+                % python_version_str
+            ):
+                candidate = (
+                    "/Library/Frameworks/Python.framework/Versions/%s/lib/libpython%s.dylib"
+                    % (python_version_str, python_version_str)
+                )
+
+                if os.path.exists(candidate):
+                    filename = lib_filename
 
             # print("adding", filename)
             result.add(filename)
